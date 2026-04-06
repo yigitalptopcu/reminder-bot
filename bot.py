@@ -227,6 +227,7 @@ def get_next_reminder_id() -> int:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Kullanıcı /start yazdığında hoş geldin mesajı gönder."""
     await update.message.reply_text(
+        "**ReminderBot vol1.2**\n\n"
         "⏰ **Hatırlatıcı Bot'a Hoş Geldiniz!**\n\n"
         "Merhaba! Ben kişisel hatırlatma asistanınızım. 📅\n"
         "Günlük görevlerinizi, önemli tarihleri ve randevularınızı kaçırmamanız için buradayım.\n\n"
@@ -518,6 +519,61 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     print(f"Hata: {context.error}")
 
 
+
+from telegram.ext import MessageHandler, filters
+
+def is_turkish_list_command(text: str) -> bool:
+    """Türkçe list komutu varyasyonlarını algılar."""
+    text = text.lower().strip()
+    return any(
+        word in text
+        for word in ["listele", "hatırlatmalarım", "hatırlatmaları göster", "hatırlatma listesi", "listem", "göster"]
+    )
+
+def is_turkish_cancel_command(text: str) -> str:
+    """Türkçe cancel komutu varyasyonlarını algılar. 'all', 'last' veya 'id' döner."""
+    text = text.lower().strip()
+    if any(word in text for word in ["tümünü sil", "hepsini sil", "tüm hatırlatmaları sil", "temizle"]):
+        return "all"
+    if any(word in text for word in ["sonuncuyu sil", "son hatırlatmayı sil", "son sil", "sonu sil"]):
+        return "last"
+    match = re.search(r'(\d+)\s*(numaralı|id\'li)?\s*hatırlatmayı sil', text)
+    if match:
+        return match.group(1)
+    return None
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Serbest metin mesajlardan Türkçe komutları algılar ve yönlendirir."""
+    text = update.message.text.strip()
+    # List komutu
+    if is_turkish_list_command(text):
+        await list_reminders(update, context)
+        return
+    # Cancel komutu
+    cancel_type = is_turkish_cancel_command(text)
+    if cancel_type:
+        # context.args'i simüle et
+        class DummyArgs:
+            def __init__(self, args):
+                self.args = args
+        if cancel_type == "all":
+            context.args = ["all"]
+        elif cancel_type == "last":
+            context.args = ["last"]
+        else:
+            context.args = [cancel_type]
+        await cancel_reminder(update, context)
+        return
+    # Hatırlatma komutu (doğal cümle)
+    if any(word in text for word in ["hatırlat", "bana", "sonra", "için", "yarın", "sabah", "akşam", "gün", "hafta", "ay", "dk", "dakika", "saat"]):
+        # /remind komutundaki gibi argümanları ayıkla
+        # Basit: ilk sayı/zaman ifadesine kadar olanı zaman, varsa tag, kalanı mesaj
+        # Kullanıcı: "yarın sabah toplantı var hatırlat" gibi yazabilir
+        # En basit haliyle: tüm metni remind fonksiyonuna argüman olarak ver
+        context.args = text.split()
+        await remind(update, context)
+        return
+
 def main() -> None:
     global application, scheduler
     loop = asyncio.new_event_loop()
@@ -533,8 +589,12 @@ def main() -> None:
     application.add_handler(CommandHandler("remind", remind))
     application.add_handler(CommandHandler("r", remind))
     application.add_handler(CommandHandler("list", list_reminders))
+    application.add_handler(CommandHandler("listele", list_reminders))
+    application.add_handler(CommandHandler("hatırlatmalarım", list_reminders))
     application.add_handler(CommandHandler("cancel", cancel_reminder))
+    application.add_handler(CommandHandler("sil", cancel_reminder))
     application.add_handler(CallbackQueryHandler(tag_callback, pattern=r'^tag\|'))
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
     application.add_error_handler(error_handler)
 
     print("Bot çalışıyor... Ctrl+C ile durdurabilirsin.")
