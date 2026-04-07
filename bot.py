@@ -527,7 +527,7 @@ def is_turkish_list_command(text: str) -> bool:
     text = text.lower().strip()
     return any(
         word in text
-        for word in ["listele", "hatırlatmalarım", "hatırlatmaları göster", "hatırlatma listesi", "listem", "göster"]
+        for word in ["listele", "hatirlatmalarim", "hatırlatmaları göster", "hatırlatma listesi", "listem", "göster"]
     )
 
 def is_turkish_cancel_command(text: str) -> str:
@@ -590,7 +590,7 @@ def main() -> None:
     application.add_handler(CommandHandler("r", remind))
     application.add_handler(CommandHandler("list", list_reminders))
     application.add_handler(CommandHandler("listele", list_reminders))
-    application.add_handler(CommandHandler("hatırlatmalarım", list_reminders))
+    application.add_handler(CommandHandler("hatirlatmalarim", list_reminders))
     application.add_handler(CommandHandler("cancel", cancel_reminder))
     application.add_handler(CommandHandler("sil", cancel_reminder))
     application.add_handler(CallbackQueryHandler(tag_callback, pattern=r'^tag\|'))
