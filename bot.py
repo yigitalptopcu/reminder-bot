@@ -86,28 +86,31 @@ def load_reminders():
 
 
 def parse_time(time_str: str) -> datetime:
-            # "bugün 09.30", "bugün 9:30" gibi
-            match = re.search(r'^bugün\s+(\d{1,2})[.:](\d{2})', time_str)
-            if match:
-                hour = int(match.group(1))
-                minute = int(match.group(2))
-                target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if target <= now:
-                    target = target + timedelta(days=1)
-                return target
-        # Saat: "09.30", "9:30", "09:30", "9.30" gibi
-        match = re.search(r'^(\d{1,2})[.:](\d{2})', time_str)
-        if match:
-            hour = int(match.group(1))
-            minute = int(match.group(2))
-            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if target <= now:
-                # Geçmişse yarına al
-                target = target + timedelta(days=1)
-            return target
+
     """Zaman ifadesini datetime nesnesine çevirir."""
     now = datetime.utcnow() + ISTANBUL_OFFSET
     time_str = time_str.lower().strip()
+
+    # "bugün 09.30", "bugün 9:30" gibi
+    match = re.search(r'^bugün\s+(\d{1,2})[.:](\d{2})', time_str)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            target = target + timedelta(days=1)
+        return target
+
+    # Saat: "09.30", "9:30", "09:30", "9.30" gibi
+    match = re.search(r'^(\d{1,2})[.:](\d{2})', time_str)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            # Geçmişse yarına al
+            target = target + timedelta(days=1)
+        return target
 
     # Yarın
     if "yarın" in time_str:
