@@ -72,10 +72,11 @@ def load_reminders():
                 })
                 # Job'u yeniden zamanla
                 if due_time > datetime.utcnow() + ISTANBUL_OFFSET:
+                    run_time_utc = due_time - ISTANBUL_OFFSET
                     scheduler.add_job(
                         send_reminder,
                         trigger="date",
-                        run_date=due_time,
+                        run_date=run_time_utc,
                         args=[chat_id, r["id"]],
                         id=r["job_id"],
                     )
@@ -85,6 +86,25 @@ def load_reminders():
 
 
 def parse_time(time_str: str) -> datetime:
+            # "bugün 09.30", "bugün 9:30" gibi
+            match = re.search(r'^bugün\s+(\d{1,2})[.:](\d{2})', time_str)
+            if match:
+                hour = int(match.group(1))
+                minute = int(match.group(2))
+                target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if target <= now:
+                    target = target + timedelta(days=1)
+                return target
+        # Saat: "09.30", "9:30", "09:30", "9.30" gibi
+        match = re.search(r'^(\d{1,2})[.:](\d{2})', time_str)
+        if match:
+            hour = int(match.group(1))
+            minute = int(match.group(2))
+            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if target <= now:
+                # Geçmişse yarına al
+                target = target + timedelta(days=1)
+            return target
     """Zaman ifadesini datetime nesnesine çevirir."""
     now = datetime.utcnow() + ISTANBUL_OFFSET
     time_str = time_str.lower().strip()
@@ -264,9 +284,20 @@ async def send_reminder(chat_id: int, reminder_id: int) -> None:
     if not reminder:
         return
 
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Tamamlandı", callback_data=f"remdone|{reminder_id}"),
+        ],
+        [
+            InlineKeyboardButton("5 dk sonra hatırlat", callback_data=f"remindagain|{reminder_id}|5"),
+            InlineKeyboardButton("30 dk sonra hatırlat", callback_data=f"remindagain|{reminder_id}|30"),
+        ],
+    ]
     await application.bot.send_message(
         chat_id=chat_id,
-        text=f"⏰ Hatırlatma: {reminder['message']}"
+        text=f"⏰ Hatırlatma: {reminder['message']}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
     # Gönderildikten sonra listeden kaldır
@@ -347,10 +378,11 @@ async def remind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reminder_id = get_next_reminder_id()
     job_id = f"reminder-{chat_id}-{reminder_id}"
 
+    run_time_utc = run_time - ISTANBUL_OFFSET
     scheduler.add_job(
         send_reminder,
         trigger="date",
-        run_date=run_time,
+        run_date=run_time_utc,
         args=[chat_id, reminder_id],
         id=job_id,
     )
@@ -594,8 +626,56 @@ def main() -> None:
     application.add_handler(CommandHandler("cancel", cancel_reminder))
     application.add_handler(CommandHandler("sil", cancel_reminder))
     application.add_handler(CallbackQueryHandler(tag_callback, pattern=r'^tag\|'))
+    application.add_handler(CallbackQueryHandler(reminder_button_callback, pattern=r'^(remdone|remindagain)\|'))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
     application.add_error_handler(error_handler)
+
+async def reminder_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    chat_id = query.message.chat_id
+    if data.startswith("remdone|"):
+        # Sadece mesajı güncelle, başka işlem yok
+        await query.edit_message_text("✅ Tamamlandı!\n" + query.message.text.replace("⏰ Hatırlatma: ", ""))
+        return
+    if data.startswith("remindagain|"):
+        _, reminder_id, minutes = data.split("|")
+        minutes = int(minutes)
+        # Orijinal hatırlatma mesajını bul
+        reminder_list = reminders.get(chat_id, [])
+        reminder = next((r for r in reminder_list if str(r["id"]) == str(reminder_id)), None)
+        # Eğer orijinal hatırlatma silindiyse, mesajdan bul
+        if not reminder:
+            # Mesajdan hatırlatma metnini al
+            msg = query.message.text.replace("⏰ Hatırlatma: ", "")
+            message = msg.strip()
+            tag = None
+        else:
+            message = reminder["message"]
+            tag = reminder.get("tag")
+        # Yeni hatırlatma zamanı
+        now = datetime.utcnow() + ISTANBUL_OFFSET
+        run_time = now + timedelta(minutes=minutes)
+        reminder_id_new = get_next_reminder_id()
+        job_id = f"reminder-{chat_id}-{reminder_id_new}"
+        run_time_utc = run_time - ISTANBUL_OFFSET
+        scheduler.add_job(
+            send_reminder,
+            trigger="date",
+            run_date=run_time_utc,
+            args=[chat_id, reminder_id_new],
+            id=job_id,
+        )
+        reminders.setdefault(chat_id, []).append({
+            "id": reminder_id_new,
+            "message": message,
+            "due_time": run_time,
+            "job_id": job_id,
+            "tag": tag,
+        })
+        save_reminders()
+        await query.edit_message_text(f"🔁 {minutes} dakika sonra tekrar hatırlatılacak!\nMesaj: {message}")
 
     print("Bot çalışıyor... Ctrl+C ile durdurabilirsin.")
     application.run_polling()
